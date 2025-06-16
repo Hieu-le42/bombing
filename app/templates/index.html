@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Vietnam Provinces Map</title>
+    <!-- Tailwind CSS for basic styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- D3.js library -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <!-- D3 Scale Chromatic for color interpolators -->
+    <script src="https://d3js.org/d3-scale-chromatic.v2.min.js"></script>
+
+    <style>
+        /* Base styles for map elements (provinces) */
+        .feature { /* Generic class for all geographic features */
+            stroke: #718096; /* Muted gray border */
+            stroke-width: 0.5px;
+            transition: fill 0.2s ease, stroke-width 0.2s ease; /* Smooth hover transition */
+        }
+
+        .feature:hover {
+            fill: #ef4444; /* Tailwind red-500 on hover (pops against dark) */
+            stroke-width: 1.5px; /* Thicker border on hover */
+            cursor: pointer;
+        }
+
+        /* Styles for the map area to contain SVG */
+        #map-area {
+            position: relative; /* Needed for absolute positioning of SVG */
+        }
+
+        #southeast-asia-map {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        /* Tooltip styles */
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            padding: 8px 12px;
+            font-size: 0.9rem;
+            background: rgba(45, 55, 72, 0.9); /* Dark background with transparency */
+            color: #fff;
+            border-radius: 6px;
+            pointer-events: none; /* Allows mouse events to pass through */
+            opacity: 0; /* Hidden by default */
+            transition: opacity 0.2s ease; /* Smooth fade-in/out */
+            z-index: 1000; /* Ensure tooltip is on top */
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        /* REMOVED: Legend container styles are no longer needed */
+
+        /* Style for the slider range thumb */
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            border: 2px solid #6366f1; /* Indigo-500 border */
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: #818cf8; /* Indigo-400 for a lighter glow */
+            cursor: grab; /* Indicates grab functionality */
+            margin-top: -8px; /* Adjust to center the thumb on the track */
+            box-shadow: 0 0 10px rgba(99, 102, 241, 0.7); /* Subtle indigo glow */
+            transition: background 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        input[type=range]::-webkit-slider-thumb:active {
+            cursor: grabbing;
+            background: #4f46e5; /* Indigo-600 when active */
+            box-shadow: 0 0 15px rgba(79, 70, 229, 1); /* More pronounced glow when active */
+        }
+
+        input[type=range]::-moz-range-thumb {
+            border: 2px solid #6366f1; /* Indigo-500 border */
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: #818cf8; /* Indigo-400 for a lighter glow */
+            cursor: grab;
+            box-shadow: 0 0 10px rgba(99, 102, 241, 0.7);
+            transition: background 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        input[type=range]::-moz-range-thumb:active {
+            cursor: grabbing;
+            background: #4f46e5; /* Indigo-600 when active */
+            box-shadow: 0 0 15px rgba(79, 70, 229, 1); /* More pronounced glow when active */
+        }
+
+        /* Style for the slider track */
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 6px; /* Slightly thinner track */
+            cursor: pointer;
+            background: linear-gradient(to right, #a78bfa, #3b82f6); /* Gradient from purple-400 to blue-500 */
+            border-radius: 3px; /* More rounded track */
+            border: 0.5px solid #6366f1; /* Indigo-500 border matching thumb */
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.2); /* Inner shadow for depth */
+        }
+
+        input[type=range]::-moz-range-track {
+            width: 100%;
+            height: 6px; /* Slightly thinner track */
+            cursor: pointer;
+            background: linear-gradient(to right, #a78bfa, #3b82f6); /* Gradient from purple-400 to blue-500 */
+            border-radius: 3px; /* More rounded track */
+            border: 0.5px solid #6366f1; /* Indigo-500 border matching thumb */
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.2); /* Inner shadow for depth */
+        }
+    </style>
+</head>
+<body class="font-sans flex justify-center items-center min-h-screen bg-gray-100 p-4">
+    <div class="bg-white rounded-xl shadow-lg p-6 md:p-8 w-full max-w-5xl text-center flex flex-col items-center">
+        <h1 class="text-gray-800 text-3xl font-bold mb-4">Interactive Vietnam Provinces Map (Ton Value)</h1>
+        <p class="text-gray-600 mb-8">Hover over a province for details and adjust the slider to change the year.</p>
+
+        <!-- Map Area -->
+        <div id="map-area" class="relative w-full aspect-video flex items-center justify-center overflow-hidden rounded-lg bg-gray-50 shadow-inner mb-8">
+            <svg id="southeast-asia-map" class="w-full h-full"></svg>
+            <div id="loading-indicator" class="absolute text-gray-500 text-lg">Loading map data...</div>
+        </div>
+
+        <!-- Year Slider (MOVED TO BOTTOM) -->
+        <div class="w-full max-w-md mx-auto bg-gray-50 p-6 rounded-xl border border-gray-200">
+            <label for="year-slider" class="text-xl font-semibold text-gray-800 mb-4 block">
+                Select Year: <span id="current-year-display" class="text-indigo-600 text-3xl font-bold">1965</span>
+            </label>
+            <input
+                type="range"
+                id="year-slider"
+                min="1965"
+                max="1975"
+                value="1965"
+                class="w-full h-3 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+            />
+            <div class="flex justify-between w-full text-sm text-gray-500 mt-2">
+                <span id="min-year-display">1965</span>
+                <span id="max-year-display">1975</span>
+            </div>
+        </div>
+    </div>
+    <!-- Moved tooltip OUTSIDE of #map-area to be relative to the body/document -->
+    <div class="tooltip" id="map-tooltip"></div>
+
+    <script>
+        // Set up chart margins and dimensions for responsiveness
+        const margin = { top: 10, right: 10, bottom: 10, left: 10 };
+        const mapArea = d3.select("#map-area");
+        let width = mapArea.node().clientWidth - margin.left - margin.right;
+        let height = width * 0.7; // Maintain an aspect ratio for the map (adjust as needed)
+
+        // Append the svg object to the div#map-area
+        const svg = d3.select("#southeast-asia-map")
+            .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+            .attr("preserveAspectRatio", "xMidYMid meet")
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Create a tooltip div
+        const tooltip = d3.select("#map-tooltip");
+        const loadingIndicator = d3.select("#loading-indicator");
+        const yearSlider = d3.select("#year-slider");
+        const currentYearDisplay = d3.select("#current-year-display");
+        const minYearDisplay = d3.select("#min-year-display");
+        const maxYearDisplay = d3.select("#max-year-display");
+
+
+        let currentProjection; // To store the active projection for choropleth mapping
+        let vietnamGeoFeatures; // Stores the static GeoJSON features for Vietnam
+        let yearlyProvinceDataMap = new Map(); // Stores the parsed CSV data, keyed by year
+        let minYearGlobal = 1965; // Default min year
+        let maxYearGlobal = 1975; // Default max year
+
+        // --- Responsive update function ---
+        function updateMapDimensions() {
+            width = mapArea.node().clientWidth - margin.left - margin.right;
+            height = width * 0.7; // Re-calculate based on new width and aspect ratio
+
+            // Update viewBox for SVG responsiveness
+            d3.select("#southeast-asia-map")
+                .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`);
+
+            // If data is already loaded, redraw the map with new dimensions
+            if (vietnamGeoFeatures && yearlyProvinceDataMap.size > 0) {
+                const currentYear = parseInt(yearSlider.property("value"));
+                drawMap(vietnamGeoFeatures, yearlyProvinceDataMap.get(currentYear) || []);
+            }
+        }
+
+        // Add event listener for window resize
+        window.addEventListener('resize', updateMapDimensions);
+
+        // --- Data Loading and Processing ---
+        async function loadData() {
+            loadingIndicator.classed("hidden", false);
+            try {
+                // Load Vietnam GeoJSON (static)
+                const vietnamGeoJson = await d3.json("/data/vietnam-provinces.geojson");
+                vietnamGeoFeatures = vietnamGeoJson.type === "FeatureCollection" ?
+                                     vietnamGeoJson.features : [vietnamGeoJson];
+
+                // Load and parse the Operation_by_year.csv data
+                // This assumes the Flask backend is configured to serve this file from /data/
+                const operationByYearData = await d3.csv("/data/Operation_by_year.csv");
+
+                // Process CSV data: Convert Count, Year, Ton to numbers and group by year
+                operationByYearData.forEach(d => {
+                    d.Count = +d.Count;
+                    d.Year = +d.Year;
+                    d.Ton = +d.Ton;
+
+                    if (!yearlyProvinceDataMap.has(d.Year)) {
+                        yearlyProvinceDataMap.set(d.Year, []);
+                    }
+                    yearlyProvinceDataMap.get(d.Year).push(d);
+                });
+
+                // Determine min/max years from the loaded data
+                const yearsInData = Array.from(yearlyProvinceDataMap.keys()).sort((a, b) => a - b);
+                if (yearsInData.length > 0) {
+                    minYearGlobal = yearsInData[0];
+                    maxYearGlobal = yearsInData[yearsInData.length - 1];
+                    yearSlider.attr("min", minYearGlobal).attr("max", maxYearGlobal);
+                    minYearDisplay.text(minYearGlobal);
+                    maxYearDisplay.text(maxYearGlobal);
+                    yearSlider.property("value", minYearGlobal); // Set slider to min year
+                }
+
+                // Initial draw with the first available year
+                updateMapDimensions(); // This will trigger drawMap with initial year's data
+
+            } catch (error) {
+                console.error("Error loading data:", error);
+                loadingIndicator.classed("hidden", true);
+                svg.append("text")
+                    .attr("x", width / 2)
+                    .attr("y", height / 2)
+                    .attr("text-anchor", "middle")
+                    .attr("fill", "red")
+                    .text("Failed to load map data. Check console for details.");
+            } finally {
+                loadingIndicator.classed("hidden", true);
+            }
+        }
+
+        // Call loadData when the script starts
+        loadData();
+
+        // --- Slider Event Listener ---
+        yearSlider.on("input", function() {
+            const newYear = parseInt(this.value);
+            currentYearDisplay.text(newYear);
+            // Get data for the new year
+            const dataForYear = yearlyProvinceDataMap.get(newYear) || [];
+            drawMap(vietnamGeoFeatures, dataForYear);
+        });
+
+        // --- Main Drawing Function ---
+        function drawMap(features, provinceDataForCurrentYear) {
+            svg.selectAll(".feature").remove(); // Clear existing map paths for redraw
+
+            // Create a lookup map for the current year's data (Province -> {Count, Ton})
+            const currentYearDataMap = new Map();
+            provinceDataForCurrentYear.forEach(d => {
+                currentYearDataMap.set(d.Province, { count: d.Count, ton: d.Ton });
+            });
+
+            // Define a map projection - fit to Vietnam features
+            const projection = d3.geoMercator()
+                .fitSize([width, height], { type: "FeatureCollection", features: features });
+
+            currentProjection = projection; // Store projection for choropleth mapping
+
+            const path = d3.geoPath().projection(projection);
+
+            // --- Define colors for Vietnam provinces based on 'Ton' ---
+            const noProvinceDataColor = "#B0C4DE"; // Light Steel Blue for default/no data provinces
+
+            // Calculate min/max Ton for the *currently displayed year's data*
+            const allTonsForYear = provinceDataForCurrentYear.map(d => d.Ton).filter(ton => ton > 0); // Filter out non-positive values for log scale
+            const minTon = allTonsForYear.length > 0 ? d3.min(allTonsForYear) : 1; // Ensure min is at least 1 for log scale
+            const maxTon = allTonsForYear.length > 0 ? d3.max(allTonsForYear) : 1;
+
+            // Corrected D3.js log scale and interpolator usage
+            const logScaleForColor = d3.scaleLog()
+                .domain([minTon, maxTon]) // Logarithmic domain
+                .range([0, 1]); // Map to a normalized range [0, 1]
+
+            // Define the interpolator function
+            const colorInterpolator = d3.interpolateYlOrRd;
+
+            // Draw the features (Vietnam provinces)
+            svg.append("g")
+                .selectAll(".feature")
+                .data(features)
+                .enter().append("path")
+                .attr("class", "feature")
+                .attr("d", path)
+                .attr("fill", d => {
+                    const featureName = d.properties.Name;
+                    const data = currentYearDataMap.get(featureName);
+                    // Apply log scale to ton value, then pass to interpolator
+                    return data && data.ton > 0 ? colorInterpolator(logScaleForColor(data.ton)) : noProvinceDataColor;
+                })
+                .on("mouseover", function(event, d) {
+                    d3.select(this).attr("fill", "#ef4444");
+                    d3.select(this).attr("stroke", "#000000").attr("stroke-width", 1.5);
+
+                    const featureName = d.properties.Name || "Unknown Province";
+                    const data = currentYearDataMap.get(featureName);
+                    const tonValue = data ? data.ton : 0;
+                    const operationCount = data ? data.count : 0;
+
+                    const tooltipLeft = event.pageX + 20;
+                    const tooltipTop = event.pageY - 10;
+
+                    tooltip.style("opacity", 1)
+                        .html(`<strong>${featureName}</strong><br>Tons: ${tonValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}<br>Operations: ${operationCount.toLocaleString()}`)
+                        .style("left", tooltipLeft + "px")
+                        .style("top", tooltipTop + "px");
+
+                })
+                .on("mousemove", function(event) {
+                    const tooltipLeft = event.pageX + 20;
+                    const tooltipTop = event.pageY - 10;
+
+                    tooltip.style("left", tooltipLeft + "px")
+                           .style("top", tooltipTop + "px");
+
+                })
+                .on("mouseout", function(event, d) {
+                    const featureName = d.properties.Name;
+                    const data = currentYearDataMap.get(featureName);
+                    let originalFill = (data && data.ton > 0) ? colorInterpolator(logScaleForColor(data.ton)) : noProvinceDataColor;
+                    d3.select(this).attr("fill", originalFill);
+                    d3.select(this).attr("stroke", "#000000").attr("stroke-width", 0.5);
+                    tooltip.style("opacity", 0);
+                });
+
+            // REMOVED: Legend rendering code has been removed
+        }
+
+    </script>
+</body>
+</html>
