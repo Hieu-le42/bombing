@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Vietnam Provinces Map</title>
+    <!-- Tailwind CSS for basic styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- D3.js library -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <!-- D3 Scale Chromatic for color interpolators -->
+    <script src="https://d3js.org/d3-scale-chromatic.v2.min.js"></script>
+
+    <style>
+        /* Base styles for map elements (provinces) */
+        .feature { /* Generic class for all geographic features */
+            stroke: #718096; /* Muted gray border */
+            stroke-width: 0.5px;
+            /* Added transition for stroke and stroke-width for smoothness */
+            transition: stroke 0.15s ease-out, stroke-width 0.15s ease-out;
+        }
+
+        /* NEW: Define hover effect directly in CSS for smoother transitions */
+        .feature:hover {
+            stroke: #000000; /* Black border on hover */
+            stroke-width: 3.0px; /* Bolder border on hover */
+            cursor: pointer;
+        }
+
+        /* Styles for the map area to contain SVG */
+        #map-area {
+            position: relative; /* Needed for absolute positioning of SVG */
+            /* The width will now be controlled by the parent w-full */
+        }
+
+        #southeast-asia-map {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        /* Tooltip styles */
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            padding: 8px 12px;
+            font-size: 0.9rem;
+            background: rgba(45, 55, 72, 0.9); /* Dark background with transparency */
+            color: #fff;
+            border-radius: 6px;
+            pointer-events: none; /* Allows mouse events to pass through */
+            opacity: 0; /* Hidden by default */
+            transition: opacity 0.2s ease; /* Smooth fade-in/out */
+            z-index: 1000; /* Ensure tooltip is on top */
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        /* Style for the slider range thumb */
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            border: 2px solid #222222; /* Darker border for thumb */
+            height: 18px; /* Slightly smaller thumb */
+            width: 18px; /* Slightly smaller thumb */
+            border-radius: 50%;
+            background: #333333; /* Dark gray for thumb */
+            cursor: grab; /* Indicates grab functionality */
+            margin-top: -6px; /* Adjusted to center the thumb on the smaller track */
+            box-shadow: 0 0 8px rgba(0,0,0,0.5); /* Black shadow */
+            transition: background 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        input[type=range]::-webkit-slider-thumb:active {
+            cursor: grabbing;
+            background: #000000; /* Pure black when active */
+            box-shadow: 0 0 12px rgba(0,0,0,0.8); /* More pronounced black glow when active */
+        }
+
+        input[type=range]::-moz-range-thumb {
+            border: 2px solid #222222; /* Darker border for thumb */
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: #333333; /* Dark gray for thumb */
+            cursor: grab;
+            box-shadow: 0 0 8px rgba(0,0,0,0.5);
+            transition: background 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        input[type=range]::-moz-range-thumb:active {
+            cursor: grabbing;
+            background: #000000; /* Pure black when active */
+            box-shadow: 0 0 12px rgba(0,0,0,0.8);
+            transition: background 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        /* Style for the slider track */
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px; /* Thinner track */
+            cursor: pointer;
+            background: #888888; /* Changed to solid grey */
+            border-radius: 2px; /* More rounded track */
+            border: 0.5px solid #333333; /* Darker border matching thumb */
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.2); /* Inner shadow for depth */
+        }
+
+        input[type=range]::-moz-range-track {
+            width: 100%;
+            height: 4px; /* Thinner track */
+            cursor: pointer;
+            background: #888888; /* Changed to solid grey */
+            border-radius: 2px; /* More rounded track */
+            border: 0.5px solid #333333; /* Darker border matching thumb */
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.2); /* Inner shadow for depth */
+        }
+    </style>
+</head>
+<body class="font-sans flex justify-center items-center min-h-screen bg-gray-100 p-4">
+    <!-- Removed bg-white, rounded-xl, shadow-lg, p-6, md:p-8 from the main container -->
+    <div class="w-full max-w-5xl text-center flex flex-col items-center">
+        <h1 class="text-gray-800 text-3xl font-bold mb-4">Mapping the Bombs</h1>
+        <p class="text-gray-600 mb-4">A data visualization of the US aerial bombing campaigns in the Vietnam War</p>
+
+        <!-- Year Slider (MOVED ABOVE MAP) -->
+        <div class="w-full max-w-[31.5rem] mx-auto mb-8">
+            <label for="year-slider" class="text-base font-semibold text-gray-800 mb-2 block">
+                Select Year: <span id="current-year-display" class="text-gray-800 text-base font-semibold">1965</span>
+            </label>
+            <input
+                type="range"
+                id="year-slider"
+                min="1965"
+                max="1975"
+                value="1965"
+                class="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer"
+            />
+            <div class="flex justify-between w-full text-xs text-gray-500 mt-2">
+                <span>1965</span>
+                <span>1975</span>
+            </div>
+        </div>
+
+        <!-- Map Area - Now spans full width of its parent -->
+        <!-- Removed bg-gray-50, rounded-lg, shadow-inner, border -->
+        <div id="map-area" class="relative w-full aspect-video flex items-center justify-center overflow-hidden mb-8">
+            <svg id="southeast-asia-map" class="w-full h-full"></svg>
+            <div id="loading-indicator" class="absolute text-gray-500 text-lg">Loading map data...</div>
+        </div>
+
+        <!-- New Text Section 1 (This is the moved introductory text) -->
+        <div class="text-left text-gray-700 max-w-2xl mx-auto mb-8">
+
+            <p class="mb-4">
+                The Vietnam War stands as one of the deadliest conflicts in history, notably for the sheer volume of aerial campaigns deployed. More than half of the hundreds of billions of dollars spent on the Vietaam War went to support Air Force, Army, and Navy aerial operations. The Air Force built up its forces the fastest of any service, reaching near peak strength by mid-1966, and then remained in Southeast Asia longer than any other service. During the period of 1965-1975, over 7 million tons of bombs were dropped on Vietnam, Laos, and Cambodia, a staggering figure compared to the approximately 2 million tons used during World War II.(1)
+            </p>
+            <p class="mb-4">
+            This map shows the number of air operations and total amount of bombing tonnage by each province of Vietnam during 1965-1975.
+            </p>
+
+        </div>
+
+        <!-- Horizontal separation line before stats and facts -->
+        <hr class="my-8 border-gray-300 w-full max-w-2xl">
+
+        <!-- Combined Key Statistics & Facts and GIF Section -->
+        <div class="flex flex-col md:flex-row items-start justify-center md:space-x-8 w-full max-w-5xl mx-auto mb-8">
+            <!-- Left Column: Text Content -->
+            <div class="text-left text-gray-700 max-w-2xl md:w-1/2 mb-8 md:mb-0 flex flex-col justify-center">
+                <p class="text-xl font-semibold mb-4">Stats & Facts from the data:</p>
+                <ul class="list-disc list-inside space-y-2">
+                    <li>
+                        <span class="font-semibold">Geographic Focus:</span> 42.3% of the total bombing tonnage was dropped on the four provinces of Quang Tri, Thua Thien - Hue, Quang Nam, and Quang Binh, making them the most heavily bombed areas. These provinces are strategically located in the central part of Vietnam, primarily along the 17th Parallel.
+                    </li>
+                    <li>
+                        <span class="font-semibold">The Deadliest Year:</span> Over the 10-year period, 1968 accounted for 19.7% of the total tonnage, making it the deadliest year for bombing. This was, in fact, a direct result of the U.S. attempt to escalate the war following the Tet Offensive.
+                    </li>
+                    <li>
+                        <span class="font-semibold">Operation Linebacker II:</span> Also known as the "Dien Bien Phu in the Air," Operation Linebacker II was a strategic bombing campaign carried out by the U.S. against North Vietnam with the main purpose of winning an upper hand at the Paris Peace Accords negotiations in December 1972.(2) In a concentrated period of 11 days, 10,500 tons of bombs were dropped on Hanoi and Hai Phong, targeted not only military targets but also civillian objects.(3)
+                    </li>
+                    <li>
+                        <span class="font-semibold"> Ho Chi Minh Trail:</span> a vital logistical network, roughly plotted by the green line on the map, served as a crucial strategic system of roads and trails that ran through the three Indochinese countries. It was essential for moving troops and supplies from North Vietnam to the South. American efforts to destroy it were immense, including major campaigns like Operation Barrel Roll, Operation Steel Tiger, Operation Tiger Hound, and Operation Commando Hunt were specifically aimed at interdicting this trail.
+                    </li>
+                </ul>
+            </div>
+            <!-- Right Column: Image Content -->
+            <div class="my-6 md:my-0 md:w-1/2 flex flex-col justify-center items-center">
+                <img src="/data/my_awesome_animation.gif" alt="Bombing missions in the Vietnam War" class="rounded-lg mx-auto w-full h-auto" style="max-width: 400px;">
+                <p class="text-gray-600 text-sm mt-2">Image created by Hieu Le</p>
+            </div>
+        </div>
+        <!-- Horizontal separation line after stats and facts -->
+        <hr class="my-8 border-gray-300 w-full max-w-2xl">
+
+        <!-- New Text Section 2 (Optional: Add more context here) -->
+        <div class="text-left text-gray-700 max-w-2xl mx-auto mb-8">
+            <p class="text-xl font-semibold mb-4">Conclusion:</p>
+
+            <p class="mb-4">
+                50 years after the war ended, the effectiveness of the aerial operations is still a controversy. While tactically successful in bombing targets and disrupt the supply lines in periods, the bombing campaigns have largely failed to destroy the North Vietnam's will to fight, nor did they completely halt the flow of trooped and supplies on the Ho Chi Minh trail.
+            </p>
+            <p class="italic text-center">
+                <br>"Air power, marvelous in its flexibility, had succeeded in bombing a United States ally into accepting its own surrender."
+            - Dr. Earl H. Tilford
+            </p>
+        </div>
+
+
+
+          <!-- References (NEW SECTION) -->
+        <!-- References (NEW SECTION) -->
+        <div class="text-left text-gray-700 max-w-2xl mx-auto mt-8 border-t pt-8 border-gray-300">
+            <p class="text-xl font-semibold mb-4">References:</p>
+            <ol class="list-decimal list-inside space-y-2">
+                <li>
+                    Tilford, Earl H. "SETUP - What the Air Force Did in Vietnam and Why." JSTOR.
+                </li>
+                <li>
+                    Ricky James Drake. The rules of defeat: the impact of aerial rules of engagement on USAF operations in Nort Vietnam, 1965-1968
+                </li>
+                <li>
+                    "Hospital Deaths: Hanoi Aide Says 25 Staff Members Are Killed by Bombs." The New York Times, December 24, 1972.
+                </li>
+
+                <li>
+                    THOR (Theater History of Operations) Vietnam War bombing operation dataset. Kaggle.
+                </li>
+            </ol>
+        </div>
+
+        <!-- Personal Project Statement (NEW SECTION) -->
+        <div class="text-left text-gray-700 max-w-2xl mx-auto self-start mt-8 border-t pt-8 border-gray-300">
+            <p class="text-xl font-semibold mb-4">Motivation:</p>
+
+            <p class="mb-4">
+                Born and raised in Vietnam, a country steeped in over 4,000 years of rich history, I developed a profound love for its past.
+                While traditional history often focuses on stories and figures, I sought to gain new insights and understanding through the lens of data.
+                This blend of historical passion and data-driven inquiry has fueled this personal project!
+            </p>
+        </div>
+
+        <!-- Copyright Information (NEW SECTION) -->
+        <!-- Changed text-left and self-start to text-center and mx-auto for centering -->
+        <div class="text-center text-gray-500 text-sm mx-auto mt-8 pt-4 border-t border-gray-300">
+            <p>&copy; Hieu Le 2025</p>
+            <p>Email: <a href="mailto:lehieu42km@gmail.com" class="text-blue-600 hover:underline">lehieu42km@gmail.com</a></p>
+            <p>GitHub: <a href="https://github.com/Hieu-le42" target="_blank" class="text-blue-600 hover:underline">github.com/Hieu-le42</a></p>
+        </div>
+
+    </div>
+    <!-- Moved tooltip OUTSIDE of #map-area to be relative to the body/document -->
+    <div class="tooltip" id="map-tooltip"></div>
+
+    <script>
+        // Set up chart margins and dimensions for responsiveness
+        const margin = { top: 10, right: 10, bottom: 10, left: 10 };
+        const mapArea = d3.select("#map-area");
+        let width = mapArea.node().clientWidth - margin.left - margin.right;
+        let height = width * 0.7; // Maintain an aspect ratio for the map (adjust as needed)
+
+        // Append the svg object to the div#map-area
+        const svg = d3.select("#southeast-asia-map")
+            .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+            .attr("preserveAspectRatio", "xMidYMid meet")
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Create a tooltip div
+        const tooltip = d3.select("#map-tooltip");
+        const loadingIndicator = d3.select("#loading-indicator");
+        const yearSlider = d3.select("#year-slider");
+        const currentYearDisplay = d3.select("#current-year-display");
+        const minYearDisplay = d3.select("#min-year-display");
+        const maxYearDisplay = d3.select("#max-year-display");
+
+
+        let currentProjection; // To store the active projection for choropleth mapping
+        let vietnamGeoFeatures; // Stores the static GeoJSON features for Vietnam
+        let yearlyProvinceDataMap = new Map(); // Stores the parsed CSV data, keyed by year
+        let minYearGlobal = 1965; // Default min year
+        let maxYearGlobal = 1975; // Default min year
+
+        // --- Responsive update function ---
+        function updateMapDimensions() {
+            // Re-calculate width based on the parent's new max-width
+            width = mapArea.node().clientWidth - margin.left - margin.right;
+            height = width * 0.7; // Maintain an aspect ratio for the map (adjust as needed)
+
+            // Update viewBox for SVG responsiveness
+            d3.select("#southeast-asia-map")
+                .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`);
+
+            // If data is already loaded, redraw the map with new dimensions
+            if (vietnamGeoFeatures && yearlyProvinceDataMap.size > 0) {
+                const currentYear = parseInt(yearSlider.property("value"));
+                drawMap(vietnamGeoFeatures, yearlyProvinceDataMap.get(currentYear) || []);
+            }
+        }
+
+        // Add event listener for window resize
+        window.addEventListener('resize', updateMapDimensions);
+
+        // --- Data Loading and Processing ---
+        async function loadData() {
+            loadingIndicator.classed("hidden", false);
+            try {
+                // Load Vietnam GeoJSON (static)
+                const vietnamGeoJson = await d3.json("/data/vietnam-provinces.geojson");
+                vietnamGeoFeatures = vietnamGeoJson.type === "FeatureCollection" ?
+                                     vietnamGeoJson.features : [vietnamGeoJson];
+
+                // Load and parse the Operation_by_year.csv data
+                // This assumes the Flask backend is configured to serve this file from /data/
+                const operationByYearData = await d3.csv("/data/Operation_by_year.csv");
+
+                // Process CSV data: Convert Count, Year, Ton to numbers and group by year
+                operationByYearData.forEach(d => {
+                    d.Count = +d.Count;
+                    d.Year = +d.Year;
+                    d.Ton = +d.Ton;
+
+                    if (!yearlyProvinceDataMap.has(d.Year)) {
+                        yearlyProvinceDataMap.set(d.Year, []);
+                    }
+                    yearlyProvinceDataMap.get(d.Year).push(d);
+                });
+
+                // Determine min/max years from the loaded data
+                const yearsInData = Array.from(yearlyProvinceDataMap.keys()).sort((a, b) => a - b);
+                if (yearsInData.length > 0) {
+                    minYearGlobal = yearsInData[0];
+                    maxYearGlobal = yearsInData[yearsInData.length - 1];
+                    yearSlider.attr("min", minYearGlobal).attr("max", maxYearGlobal);
+                    minYearDisplay.text(minYearGlobal);
+                    maxYearDisplay.text(maxYearGlobal);
+                    yearSlider.property("value", minYearGlobal); // Set slider to min year
+                }
+
+                // Initial draw with the first available year
+                updateMapDimensions(); // This will trigger drawMap with initial year's data
+
+            } catch (error) {
+                console.error("Error loading data:", error);
+                loadingIndicator.classed("hidden", true);
+                svg.append("text")
+                    .attr("x", width / 2)
+                    .attr("y", height / 2)
+                    .attr("text-anchor", "middle")
+                    .attr("fill", "red")
+                    .text("Failed to load map data. Check console for details.");
+            } finally {
+                loadingIndicator.classed("hidden", true);
+            }
+        }
+
+        // Call loadData when the script starts
+        loadData();
+
+        // --- Slider Event Listener ---
+        yearSlider.on("input", function() {
+            const newYear = parseInt(this.value);
+            currentYearDisplay.text(newYear);
+            // Get data for the new year
+            const dataForYear = yearlyProvinceDataMap.get(newYear) || [];
+            drawMap(vietnamGeoFeatures, dataForYear);
+        });
+
+        // --- Main Drawing Function ---
+        function drawMap(features, provinceDataForCurrentYear) {
+            svg.selectAll(".feature").remove(); // Clear existing map paths for redraw
+
+            // Create a lookup map for the current year's data (Province -> {Count, Ton})
+            const currentYearDataMap = new Map();
+            provinceDataForCurrentYear.forEach(d => {
+                currentYearDataMap.set(d.Province, { count: d.Count, ton: d.Ton });
+            });
+
+            // Define a map projection - fit to Vietnam features
+            const projection = d3.geoMercator()
+                .fitSize([width, height], { type: "FeatureCollection", features: features });
+
+            currentProjection = projection; // Store projection for choropleth mapping
+
+            const path = d3.geoPath().projection(projection);
+
+            // --- Define colors for Vietnam provinces based on 'Ton' ---
+            const noProvinceDataColor = "#B0C4DE"; // Light Steel Blue for default/no data provinces
+
+            // Calculate min/max Ton for the *currently displayed year's data*
+            const allTonsForYear = provinceDataForCurrentYear.map(d => d.Ton).filter(ton => ton > 0); // Filter out non-positive values for log scale
+            const minTon = allTonsForYear.length > 0 ? d3.min(allTonsForYear) : 1; // Ensure min is at least 1 for log scale
+            const maxTon = allTonsForYear.length > 0 ? d3.max(allTonsForYear) : 1;
+
+            // Corrected D3.js log scale and interpolator usage
+            const logScaleForColor = d3.scaleLog()
+                .domain([minTon, maxTon]) // Logarithmic domain
+                .range([0, 1]); // Map to a normalized range [0, 1]
+
+            // Define the interpolator function
+            const colorInterpolator = d3.interpolateYlOrRd;
+
+            // Draw the features (Vietnam provinces)
+            svg.append("g")
+                .selectAll(".feature")
+                .data(features)
+                .enter().append("path")
+                .attr("class", "feature")
+                .attr("d", path)
+                .attr("fill", d => {
+                    const featureName = d.properties.Name;
+                    const data = currentYearDataMap.get(featureName);
+                    // Apply log scale to ton value, then pass to interpolator
+                    return data && data.ton > 0 ? colorInterpolator(logScaleForColor(data.ton)) : noProvinceDataColor;
+                })
+                .on("mouseover", function(event, d) {
+                    // No direct SVG attribute manipulation needed here for stroke/stroke-width
+                    // as it's handled by CSS :hover.
+                    // Keep only tooltip logic
+                    const featureName = d.properties.Name || "Unknown Province";
+                    const data = currentYearDataMap.get(featureName);
+                    const tonValue = data ? data.ton : 0;
+                    const operationCount = data ? data.count : 0;
+
+                    const tooltipLeft = event.pageX + 20;
+                    const tooltipTop = event.pageY - 10;
+
+                    tooltip.style("opacity", 1)
+                        .html(`<strong>${featureName}</strong><br>Tons: ${tonValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}<br>Operations: ${operationCount.toLocaleString()}`)
+                        .style("left", tooltipLeft + "px")
+                        .style("top", tooltipTop + "px");
+
+                })
+                .on("mousemove", function(event) {
+                    const tooltipLeft = event.pageX + 20;
+                    const tooltipTop = event.pageY - 10;
+
+                    tooltip.style("left", tooltipLeft + "px")
+                           .style("top", tooltipTop + "px");
+
+                })
+                .on("mouseout", function(event, d) {
+                    // No direct SVG attribute manipulation needed here for stroke/stroke-width
+                    // as it's handled by CSS :hover.
+                    tooltip.style("opacity", 0);
+                });
+
+        }
+
+        // Function to toggle the visibility of a reference link (no longer used in this version)
+        function toggleReferenceLink(linkId) {
+            // This function is kept for potential future use but is not active in this version.
+            // The links are now always visible (or hidden via CSS if you prefer).
+            console.log(`Toggle function called for ${linkId}, but links are now always visible.`);
+        }
+
+    </script>
+</body>
+</html>
